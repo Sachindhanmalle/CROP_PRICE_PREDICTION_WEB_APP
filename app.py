@@ -1,48 +1,38 @@
-from flask import Flask, request, jsonify, render_template
-import joblib
+import streamlit as st
 import pandas as pd
+import requests
 
-app = Flask(__name__)
+st.title("Crop Price Prediction (Streamlit)")
 
-# Load model and encoder
-model = joblib.load("price_predictor.pkl")
-encoder = joblib.load("encoder.pkl")
+try:
+    df = pd.read_csv("crop.csv")
+    amc_options = sorted(df['Amc_Name'].dropna().unique())
+    crop_options = sorted(df['Crop'].dropna().unique())
+except Exception:
+    amc_options = []
+    crop_options = []
 
-@app.route("/")
-def home():
-    return render_template("index.html")
+if amc_options:
+    amc = st.selectbox("Amc_Name", amc_options)
+else:
+    amc = st.text_input("Amc_Name")
 
-@app.route("/predict", methods=["POST"])
-def predict():
+if crop_options:
+    crop = st.selectbox("Crop", crop_options)
+else:
+    crop = st.text_input("Crop")
+
+month = st.slider("Month", 1, 12, 1)
+day = st.slider("Day", 1, 31, 1)
+
+if st.button("Predict"):
+    payload = {"Amc_Name": amc, "Crop": crop, "Month": int(month), "Day": int(day)}
     try:
-        amc_name = request.form["amc_name"]
-        crop = request.form["crop"]
-        date = pd.to_datetime(request.form["date"])
-
-        # Extract month and day
-        month = date.month
-        day = date.day
-
-        # Create DataFrame
-        input_df = pd.DataFrame([[amc_name, crop, month, day]],
-                                columns=["Amc_Name", "Crop", "Month", "Day"])
-
-        # Encode input using saved encoder
-        input_encoded = encoder.transform(input_df)
-
-        # Predict
-        prediction = model.predict(input_encoded)
-
-        min_price = round(prediction[0][0], 2)
-        max_price = round(prediction[0][1], 2)
-
-        return jsonify({
-            "min_price": min_price,
-            "max_price": max_price
-        })
-
-    except Exception as e:
-        return jsonify({"error": str(e)})
-
-if __name__ == "__main__":
-    app.run(debug=True)
+        resp = requests.post("http://127.0.0.1:8000/predict", json=payload, timeout=10)
+        if resp.ok:
+            data = resp.json()
+            st.success(f"Minimum: {data.get('Minimum'):.2f} | Maximum: {data.get('Maximum'):.2f}")
+        else:
+            st.error(f"API error {resp.status_code}: {resp.text}")
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to reach backend: {e}")
